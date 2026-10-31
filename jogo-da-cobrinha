@@ -1,0 +1,1161 @@
+
+import pygame
+import random
+import sys
+import math
+import json
+import os
+
+pygame.init()
+
+# ==========================================
+# CONFIGURAÇÕES
+# ==========================================
+
+W, H = 1000, 700
+TAM = 20
+
+tela = pygame.display.set_mode((W, H))
+pygame.display.set_caption("SNAKE EVOLUTION 4.0")
+
+canvas = pygame.Surface((W, H))
+relogio = pygame.time.Clock()
+
+fonte_titulo = pygame.font.SysFont("Arial", 55, bold=True)
+fonte = pygame.font.SysFont("Arial", 25, bold=True)
+fonte_pequena = pygame.font.SysFont("Arial", 18)
+
+FUNDO = (12, 30, 25)
+BRANCO = (245, 255, 245)
+VERDE = (40, 220, 100)
+LARANJA = (255, 145, 35)
+VERMELHO = (240, 55, 55)
+CINZA = (128, 128, 128)
+
+fullscreen = False
+tamanho_tela = (W, H)
+
+# ==========================================
+# DIFICULDADES
+# ==========================================
+
+dificuldades = {
+    "FACIL": {
+        "largura": 600,
+        "altura": 400,
+        "velocidade": 6,
+        "cor": VERDE
+    },
+    "MEDIO": {
+        "largura": 800,
+        "altura": 500,
+        "velocidade": 11,
+        "cor": LARANJA
+    },
+    "DIFICIL": {
+        "largura": 1000,
+        "altura": 700,
+        "velocidade": 17,
+        "cor": VERMELHO
+    }
+}
+
+dificuldade = "FACIL"
+
+# ==========================================
+# SKINS
+# ==========================================
+
+skins = {
+    "Verde": {
+        "cor": (40, 220, 100),
+        "preco": 0,
+        "tipo": "normal"
+    },
+    "Azul": {
+        "cor": (40, 120, 255),
+        "preco": 50,
+        "tipo": "normal"
+    },
+    "Vermelha": {
+        "cor": (240, 45, 55),
+        "preco": 75,
+        "tipo": "normal"
+    },
+    "Amarela": {
+        "cor": (255, 220, 40),
+        "preco": 100,
+        "tipo": "normal"
+    },
+    "Roxa": {
+        "cor": (160, 65, 240),
+        "preco": 125,
+        "tipo": "normal"
+    },
+    "Rosa": {
+        "cor": (255, 100, 190),
+        "preco": 150,
+        "tipo": "normal"
+    },
+    "Laranja": {
+        "cor": (255, 130, 35),
+        "preco": 175,
+        "tipo": "normal"
+    },
+    "Branca": {
+        "cor": (235, 240, 255),
+        "preco": 200,
+        "tipo": "normal"
+    },
+    "Preta": {
+        "cor": (65, 65, 75),
+        "preco": 225,
+        "tipo": "normal"
+    },
+    "Turquesa": {
+        "cor": (20, 220, 210),
+        "preco": 250,
+        "tipo": "normal"
+    },
+    "Dragao": {
+        "cor": (200, 35, 25),
+        "preco": 1500,
+        "tipo": "dragao"
+    },
+    "Unicornio": {
+        "cor": (220, 130, 255),
+        "preco": 2000,
+        "tipo": "unicornio"
+    }
+}
+
+# ==========================================
+# SALVAR PROGRESSO
+# ==========================================
+
+ARQUIVO = "snake_save.json"
+
+moedas = 0
+compradas = ["Verde"]
+equipada = "Verde"
+
+
+def salvar():
+
+    dados = {
+        "moedas": moedas,
+        "compradas": compradas,
+        "equipada": equipada
+    }
+
+    with open(ARQUIVO, "w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, indent=4)
+
+
+def carregar():
+
+    global moedas, compradas, equipada
+
+    if os.path.exists(ARQUIVO):
+
+        try:
+            with open(ARQUIVO, "r", encoding="utf-8") as arquivo:
+                dados = json.load(arquivo)
+
+            moedas = max(0, int(dados.get("moedas", 0)))
+
+            compradas = [
+                nome for nome in dados.get("compradas", ["Verde"])
+                if nome in skins
+            ]
+
+            if "Verde" not in compradas:
+                compradas.append("Verde")
+
+            nome = dados.get("equipada", "Verde")
+
+            equipada = nome if nome in compradas else "Verde"
+
+        except (ValueError, TypeError, json.JSONDecodeError):
+            moedas = 0
+            compradas = ["Verde"]
+            equipada = "Verde"
+
+
+carregar()
+
+# ==========================================
+# TELA CHEIA
+# ==========================================
+
+def alternar_tela():
+
+    global tela, fullscreen, tamanho_tela
+
+    fullscreen = not fullscreen
+
+    if fullscreen:
+        info = pygame.display.Info()
+        tamanho_tela = (info.current_w, info.current_h)
+
+        tela = pygame.display.set_mode(
+            tamanho_tela,
+            pygame.FULLSCREEN
+        )
+
+    else:
+        tamanho_tela = (W, H)
+        tela = pygame.display.set_mode((W, H))
+
+
+def apresentar():
+
+    imagem = pygame.transform.smoothscale(
+        canvas,
+        tela.get_size()
+    )
+
+    tela.blit(imagem, (0, 0))
+    pygame.display.flip()
+
+
+def pos_mouse(pos):
+
+    largura, altura = tela.get_size()
+
+    return (
+        int(pos[0] * W / largura),
+        int(pos[1] * H / altura)
+    )
+
+
+# ==========================================
+# DESENHO
+# ==========================================
+
+def texto(msg, fonte_usada, cor, x, y):
+
+    imagem = fonte_usada.render(msg, True, cor)
+    ret = imagem.get_rect(center=(x, y))
+    canvas.blit(imagem, ret)
+
+
+def botao(msg, x, y, largura, altura, mouse, cor):
+
+    ret = pygame.Rect(x, y, largura, altura)
+
+    cor_final = cor
+
+    if ret.collidepoint(mouse):
+        cor_final = tuple(min(c + 35, 255) for c in cor)
+
+    pygame.draw.rect(
+        canvas, cor_final, ret, border_radius=13
+    )
+
+    texto(
+        msg, fonte, BRANCO,
+        x + largura // 2,
+        y + altura // 2
+    )
+
+    return ret
+
+
+# ==========================================
+# COBRA PERSONALIZADA
+# ==========================================
+
+def desenhar_cobra(superficie, x, y, cor, tipo="normal"):
+
+    # Corpo
+    for i in range(5):
+
+        px = x - i * 20
+        py = y
+
+        cor_corpo = tuple(max(0, c - i * 12) for c in cor)
+
+        pygame.draw.circle(
+            superficie,
+            cor_corpo,
+            (px, py),
+            10
+        )
+
+        # Detalhes do dragão
+        if tipo == "dragao" and i > 0:
+            pygame.draw.polygon(
+                superficie,
+                (255, 150, 30),
+                [
+                    (px, py - 7),
+                    (px - 5, py - 17),
+                    (px + 5, py - 8)
+                ]
+            )
+
+        # Brilhos do unicórnio
+        if tipo == "unicornio":
+            pygame.draw.circle(
+                superficie,
+                (255, 255, 255),
+                (px, py - 4),
+                3
+            )
+
+    # Cabeça
+    pygame.draw.circle(
+        superficie,
+        cor,
+        (x + 15, y),
+        14
+    )
+
+    # Olhos
+    pygame.draw.circle(
+        superficie,
+        BRANCO,
+        (x + 20, y - 5),
+        4
+    )
+
+    pygame.draw.circle(
+        superficie,
+        (20, 20, 20),
+        (x + 21, y - 5),
+        2
+    )
+
+    pygame.draw.circle(
+        superficie,
+        BRANCO,
+        (x + 20, y + 5),
+        4
+    )
+
+    pygame.draw.circle(
+        superficie,
+        (20, 20, 20),
+        (x + 21, y + 5),
+        2
+    )
+
+    # Chifres e asas do dragão
+    if tipo == "dragao":
+
+        pygame.draw.polygon(
+            superficie,
+            (255, 170, 30),
+            [(x + 8, y - 10), (x, y - 25), (x + 16, y - 13)]
+        )
+
+        pygame.draw.polygon(
+            superficie,
+            (255, 170, 30),
+            [(x - 4, y - 10), (x - 15, y - 25), (x + 3, y - 14)]
+        )
+
+        pygame.draw.polygon(
+            superficie,
+            (120, 20, 20),
+            [(x - 5, y), (x - 25, y - 22), (x - 18, y + 4)]
+        )
+
+    # Chifre e detalhes mágicos do unicórnio
+    if tipo == "unicornio":
+
+        pygame.draw.polygon(
+            superficie,
+            (255, 220, 80),
+            [
+                (x + 10, y - 12),
+                (x + 22, y - 38),
+                (x + 22, y - 10)
+            ]
+        )
+
+        pygame.draw.circle(
+            superficie,
+            (255, 130, 210),
+            (x - 5, y - 10),
+            5
+        )
+
+
+# ==========================================
+# PREVIEW DA COBRA NO MENU
+# ==========================================
+
+def preview_cobra(tempo):
+
+    skin = skins[equipada]
+
+    x = 130 + int((tempo % 4000) / 4000 * 700)
+    y = 520 + int(math.sin(tempo / 250) * 12)
+
+    desenhar_cobra(
+        canvas,
+        x,
+        y,
+        skin["cor"],
+        skin["tipo"]
+    )
+
+
+# ==========================================
+# LOJA
+# ==========================================
+
+def loja():
+
+    global moedas, equipada
+
+    pagina = 0
+    nomes = list(skins.keys())
+    mouse = (0, 0)
+
+    while True:
+
+        canvas.fill(FUNDO)
+
+        texto(
+            "LOJA DE SKINS",
+            fonte_titulo,
+            BRANCO,
+            500, 65
+        )
+
+        texto(
+            f"MOEDAS: {moedas}",
+            fonte,
+            (255, 220, 50),
+            500, 125
+        )
+
+        texto(
+            "Escolha sua cobra!",
+            fonte_pequena,
+            BRANCO,
+            500, 165
+        )
+
+        inicio = pagina * 6
+        lista = nomes[inicio:inicio + 6]
+
+        for i, nome in enumerate(lista):
+
+            x = 100 + (i % 3) * 270
+            y = 210 + (i // 3) * 175
+
+            skin = skins[nome]
+            cor = skin["cor"]
+            tipo = skin["tipo"]
+
+            ret = pygame.Rect(x, y, 230, 145)
+
+            pygame.draw.rect(
+                canvas,
+                (25, 60, 45),
+                ret,
+                border_radius=15
+            )
+
+            pygame.draw.rect(
+                canvas,
+                cor,
+                ret,
+                3,
+                border_radius=15
+            )
+
+            desenhar_cobra(
+                canvas,
+                x + 100,
+                y + 55,
+                cor,
+                tipo
+            )
+
+            texto(
+                nome.upper(),
+                fonte_pequena,
+                BRANCO,
+                x + 115,
+                y + 88
+            )
+
+            if nome in compradas:
+
+                if nome == equipada:
+                    legenda = "EQUIPADA"
+                else:
+                    legenda = "EQUIPAR"
+
+                cor_botao = VERDE
+
+            else:
+
+                legenda = f"{skin['preco']} MOEDAS"
+                cor_botao = LARANJA
+
+            botao(
+                legenda,
+                x + 20,
+                y + 105,
+                190,
+                30,
+                mouse,
+                cor_botao
+            )
+
+        voltar = botao(
+            "VOLTAR",
+            350, 590, 130, 50,
+            mouse, VERMELHO
+        )
+
+        anterior = botao(
+            "<",
+            90, 590, 80, 50,
+            mouse, VERDE
+        )
+
+        proximo = botao(
+            ">",
+            830, 590, 80, 50,
+            mouse, VERDE
+        )
+
+        texto(
+            f"Pagina {pagina + 1} / 2",
+            fonte_pequena,
+            BRANCO,
+            500, 615
+        )
+
+        apresentar()
+
+        for evento in pygame.event.get():
+
+            if evento.type == pygame.QUIT:
+                salvar()
+                pygame.quit()
+                sys.exit()
+
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_F11:
+                    alternar_tela()
+
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+
+                if evento.button == 1:
+
+                    mouse = pos_mouse(evento.pos)
+
+                    if voltar.collidepoint(mouse):
+                        return
+
+                    if anterior.collidepoint(mouse):
+                        pagina = 0
+
+                    if proximo.collidepoint(mouse):
+                        pagina = 1
+
+                    for i, nome in enumerate(lista):
+
+                        x = 100 + (i % 3) * 270
+                        y = 210 + (i // 3) * 175
+
+                        area = pygame.Rect(
+                            x + 20, y + 105, 190, 30
+                        )
+
+                        if area.collidepoint(mouse):
+
+                            skin = skins[nome]
+
+                            if nome in compradas:
+                                equipada = nome
+                                salvar()
+
+                            elif moedas >= skin["preco"]:
+
+                                moedas -= skin["preco"]
+                                compradas.append(nome)
+                                equipada = nome
+
+                                salvar()
+
+        mouse = pos_mouse(pygame.mouse.get_pos())
+        relogio.tick(60)
+
+
+# ==========================================
+# MAPA E MAÇÃ
+# ==========================================
+
+def criar_maca(cobrinha, colunas, linhas):
+
+    espacos = [
+        (x, y)
+        for x in range(colunas)
+        for y in range(linhas)
+        if (x, y) not in cobrinha
+    ]
+
+    return random.choice(espacos) if espacos else None
+
+
+def desenhar_mapa(largura, altura):
+
+    canvas.fill(FUNDO)
+
+    for x in range(0, largura, TAM):
+        for y in range(0, altura, TAM):
+
+            if (x // TAM + y // TAM) % 2 == 0:
+
+                pygame.draw.rect(
+                    canvas,
+                    (20, 55, 38),
+                    (x, y, TAM, TAM)
+                )
+
+    pygame.draw.rect(
+        canvas,
+        (90, 190, 105),
+        (0, 0, largura, altura),
+        4
+    )
+
+
+def desenhar_maca(pos):
+
+    if pos is None:
+        return
+
+    x = pos[0] * TAM
+    y = pos[1] * TAM
+
+    pygame.draw.circle(
+        canvas, (210, 25, 40), (x + 10, y + 12), 9
+    )
+
+    pygame.draw.circle(
+        canvas, (255, 100, 100), (x + 7, y + 8), 3
+    )
+
+    pygame.draw.line(
+        canvas, (100, 65, 30),
+        (x + 10, y + 5),
+        (x + 12, y + 1), 3
+    )
+
+    pygame.draw.ellipse(
+        canvas, VERDE,
+        (x + 11, y, 9, 5)
+    )
+
+
+# ==========================================
+# DESENHAR COBRINHA NO JOGO
+# ==========================================
+
+def desenhar_cobrinha(cobrinha, direcao):
+
+    skin = skins[equipada]
+    cor = skin["cor"]
+    tipo = skin["tipo"]
+
+    for i, parte in enumerate(cobrinha):
+
+        x = parte[0] * TAM
+        y = parte[1] * TAM
+
+        cor_parte = tuple(
+            max(0, c - (i % 3) * 15) for c in cor
+        )
+
+        pygame.draw.rect(
+            canvas,
+            cor_parte,
+            (x + 1, y + 1, TAM - 2, TAM - 2),
+            border_radius=8
+        )
+
+        # Escamas do dragão
+        if tipo == "dragao" and i > 0:
+            pygame.draw.circle(
+                canvas,
+                (255, 150, 30),
+                (x + 10, y + 10),
+                3
+            )
+
+        # Brilhos do unicórnio
+        if tipo == "unicornio" and i > 0:
+            pygame.draw.circle(
+                canvas,
+                BRANCO,
+                (x + 10, y + 10),
+                3
+            )
+
+    # Olhos
+    x = cobrinha[0][0] * TAM
+    y = cobrinha[0][1] * TAM
+
+    if direcao == (1, 0):
+        olhos = [(x + 14, y + 5), (x + 14, y + 15)]
+    elif direcao == (-1, 0):
+        olhos = [(x + 5, y + 5), (x + 5, y + 15)]
+    elif direcao == (0, -1):
+        olhos = [(x + 5, y + 5), (x + 15, y + 5)]
+    else:
+        olhos = [(x + 5, y + 14), (x + 15, y + 14)]
+
+    for olho in olhos:
+        pygame.draw.circle(canvas, BRANCO, olho, 3)
+
+    # Acessórios da cabeça
+    centro = (x + 10, y + 10)
+
+    if tipo == "dragao":
+
+        pygame.draw.polygon(
+            canvas, (255, 160, 20),
+            [(x + 4, y + 3), (x - 2, y - 8), (x + 11, y + 2)]
+        )
+
+        pygame.draw.polygon(
+            canvas, (255, 160, 20),
+            [(x + 15, y + 3), (x + 22, y - 8), (x + 10, y + 2)]
+        )
+
+    elif tipo == "unicornio":
+
+        pygame.draw.polygon(
+            canvas, (255, 220, 70),
+            [(x + 8, y + 3), (x + 10, y - 12), (x + 13, y + 3)]
+        )
+
+
+# ==========================================
+# ANIMAÇÃO DE MORTE
+# ==========================================
+
+def animacao_morte(cobrinha):
+
+    particulas = []
+
+    for parte in cobrinha:
+
+        x = parte[0] * TAM + TAM // 2
+        y = parte[1] * TAM + TAM // 2
+
+        for i in range(10):
+
+            angulo = random.random() * math.pi * 2
+            velocidade = random.uniform(2, 5)
+
+            particulas.append([
+                x, y,
+                math.cos(angulo) * velocidade,
+                math.sin(angulo) * velocidade,
+                25
+            ])
+
+        for frame in range(12):
+
+            desenhar_mapa(W, H)
+
+            for p in particulas[:]:
+
+                p[0] += p[2]
+                p[1] += p[3]
+                p[4] -= 1
+
+                if p[4] <= 0:
+                    particulas.remove(p)
+                else:
+                    pygame.draw.circle(
+                        canvas,
+                        skins[equipada]["cor"],
+                        (int(p[0]), int(p[1])),
+                        3
+                    )
+
+            apresentar()
+            relogio.tick(45)
+
+
+# ==========================================
+# GAME OVER
+# ==========================================
+
+def game_over(pontos):
+
+    tela_menu()
+
+    while True:
+
+        canvas.fill(FUNDO)
+
+        texto(
+            "GAME OVER",
+            fonte_titulo,
+            VERMELHO,
+            500, 230
+        )
+
+        texto(
+            f"Pontuacao: {pontos}",
+            fonte,
+            BRANCO,
+            500, 310
+        )
+
+        texto(
+            f"+ {pontos} MOEDAS",
+            fonte,
+            (255, 220, 50),
+            500, 360
+        )
+
+        mouse = pos_mouse(pygame.mouse.get_pos())
+
+        voltar = botao(
+            "VOLTAR AO MENU",
+            350, 440, 300, 65,
+            mouse, VERDE
+        )
+
+        apresentar()
+
+        for evento in pygame.event.get():
+
+            if evento.type == pygame.QUIT:
+                salvar()
+                pygame.quit()
+                sys.exit()
+
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_F11:
+                    alternar_tela()
+
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+                mouse = pos_mouse(evento.pos)
+
+                if voltar.collidepoint(mouse):
+                    return
+
+        relogio.tick(60)
+
+
+def tela_menu():
+    global tela
+    # Mantém o modo de exibição atual.
+
+
+# ==========================================
+# JOGO
+# ==========================================
+
+def jogar():
+
+    global moedas
+
+    config = dificuldades[dificuldade]
+
+    largura = config["largura"]
+    altura = config["altura"]
+    velocidade = config["velocidade"]
+
+    colunas = largura // TAM
+    linhas = altura // TAM
+
+    cx = colunas // 2
+    cy = linhas // 2
+
+    cobrinha = [
+        (cx, cy),
+        (cx - 1, cy),
+        (cx - 2, cy)
+    ]
+
+    direcao = (1, 0)
+    proxima = direcao
+
+    comida = criar_maca(cobrinha, colunas, linhas)
+
+    pontos = 0
+    movimento = pygame.time.get_ticks()
+    intervalo = 1000 / velocidade
+
+    executando = True
+
+    while executando:
+
+        agora = pygame.time.get_ticks()
+
+        for evento in pygame.event.get():
+
+            if evento.type == pygame.QUIT:
+                salvar()
+                pygame.quit()
+                sys.exit()
+
+            if evento.type == pygame.KEYDOWN:
+
+                if evento.key == pygame.K_F11:
+                    alternar_tela()
+
+                elif evento.key == pygame.K_ESCAPE:
+                    executando = False
+
+                elif evento.key in (pygame.K_UP, pygame.K_w):
+                    if direcao != (0, 1):
+                        proxima = (0, -1)
+
+                elif evento.key in (pygame.K_DOWN, pygame.K_s):
+                    if direcao != (0, -1):
+                        proxima = (0, 1)
+
+                elif evento.key in (pygame.K_LEFT, pygame.K_a):
+                    if direcao != (1, 0):
+                        proxima = (-1, 0)
+
+                elif evento.key in (pygame.K_RIGHT, pygame.K_d):
+                    if direcao != (-1, 0):
+                        proxima = (1, 0)
+
+        if not executando:
+            break
+
+        if agora - movimento >= intervalo:
+
+            movimento = agora
+            direcao = proxima
+
+            cabeca = (
+                cobrinha[0][0] + direcao[0],
+                cobrinha[0][1] + direcao[1]
+            )
+
+            comeu = cabeca == comida
+
+            # Verificar colisão antes de mover
+            if (
+                cabeca[0] < 0 or cabeca[0] >= colunas
+                or cabeca[1] < 0 or cabeca[1] >= linhas
+                or cabeca in (cobrinha[:-1] if not comeu else cobrinha)
+            ):
+                break
+
+            cobrinha.insert(0, cabeca)
+
+            if comeu:
+                pontos += 10
+                comida = criar_maca(cobrinha, colunas, linhas)
+            else:
+                cobrinha.pop()
+
+        # Centralizar mapa
+        canvas.fill(FUNDO)
+
+        mapa_x = (W - largura) // 2
+        mapa_y = (H - altura) // 2
+
+        desenhar_mapa(largura, altura)
+
+        desenhar_maca(comida)
+        desenhar_cobrinha(cobrinha, direcao)
+
+        # Deslocar o mapa para o centro
+        if mapa_x or mapa_y:
+            recorte = canvas.subsurface(
+                (0, 0, largura, altura)
+            ).copy()
+
+            canvas.fill(FUNDO)
+            canvas.blit(recorte, (mapa_x, mapa_y))
+
+        texto(
+            f"PONTOS: {pontos}",
+            fonte_pequena,
+            BRANCO,
+            100, 25
+        )
+
+        texto(
+            f"SKIN: {equipada}",
+            fonte_pequena,
+            skins[equipada]["cor"],
+            300, 25
+        )
+
+        apresentar()
+        relogio.tick(60)
+
+    if executando:
+
+        animacao_morte(cobrinha)
+
+        moedas += pontos
+        salvar()
+
+        game_over(pontos)
+
+
+# ==========================================
+# MENU PRINCIPAL
+# ==========================================
+
+def menu():
+
+    global dificuldade
+
+    tempo = 0
+
+    while True:
+
+        mouse = pos_mouse(pygame.mouse.get_pos())
+
+        canvas.fill(FUNDO)
+
+        texto(
+            "SNAKE EVOLUTION",
+            fonte_titulo,
+            VERDE,
+            500, 100
+        )
+
+        texto(
+            f"MOEDAS: {moedas}",
+            fonte,
+            (255, 220, 50),
+            500, 170
+        )
+
+        texto(
+            "DIFICULDADE",
+            fonte_pequena,
+            BRANCO,
+            500, 230
+        )
+
+        facil = botao(
+            "FACIL",
+            150, 270, 180, 55,
+            mouse, VERDE
+        )
+
+        medio = botao(
+            "MEDIO",
+            410, 270, 180, 55,
+            mouse, LARANJA
+        )
+
+        dificil = botao(
+            "DIFICIL",
+            670, 270, 180, 55,
+            mouse, VERMELHO
+        )
+
+        escolhidos = {
+            "FACIL": facil,
+            "MEDIO": medio,
+            "DIFICIL": dificil
+        }
+
+        pygame.draw.rect(
+            canvas,
+            BRANCO,
+            escolhidos[dificuldade],
+            3,
+            border_radius=13
+        )
+
+        iniciar = botao(
+            "INICIAR JOGO",
+            350, 355, 300, 60,
+            mouse, VERDE
+        )
+
+        loja_botao = botao(
+            "LOJA DE SKINS",
+            350, 435, 300, 60,
+            mouse, (100, 75, 190)
+        )
+
+        fullscreen_botao = botao(
+            "TELA CHEIA: " + ("SIM" if fullscreen else "NAO"),
+            350, 515, 300, 50,
+            mouse, (60, 100, 120)
+        )
+
+        texto(
+            "F11: alternar tela cheia",
+            fonte_pequena,CINZA,700,640)
+
+        # Cobra passeando no menu
+        preview_cobra(tempo)
+
+        texto(
+            f"Equipado: {equipada}",
+            fonte_pequena,
+            skins[equipada]["cor"],
+            500, 640
+        )
+
+        apresentar()
+
+        for evento in pygame.event.get():
+
+            if evento.type == pygame.QUIT:
+                salvar()
+                pygame.quit()
+                sys.exit()
+
+            if evento.type == pygame.KEYDOWN:
+
+                if evento.key == pygame.K_F11:
+                    alternar_tela()
+
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+
+                if evento.button == 1:
+
+                    mouse = pos_mouse(evento.pos)
+
+                    if facil.collidepoint(mouse):
+                        dificuldade = "FACIL"
+
+                    elif medio.collidepoint(mouse):
+                        dificuldade = "MEDIO"
+
+                    elif dificil.collidepoint(mouse):
+                        dificuldade = "DIFICIL"
+
+                    elif loja_botao.collidepoint(mouse):
+                        loja()
+
+                    elif fullscreen_botao.collidepoint(mouse):
+                        alternar_tela()
+
+                    elif iniciar.collidepoint(mouse):
+                        return
+
+        tempo += 16
+        relogio.tick(60)
+
+
+# ==========================================
+# EXECUÇÃO
+# ==========================================
+
+while True:
+
+    menu()
+    jogar()
